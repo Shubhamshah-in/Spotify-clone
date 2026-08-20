@@ -1,0 +1,132 @@
+10-minute project introduction
+1. Project overview — ~1 minute
+
+“Good morning. I’m Shubham. I’m interested in backend development and building practical applications.
+
+One of my main projects is an email scheduling system. The purpose of this project is to allow users to create email campaigns, schedule emails for a particular time, and automatically send those emails in the background without the user having to keep the application open.
+
+The frontend is built using React, and the backend is built using Node.js and Express.js. For permanent application data, we use PostgreSQL with Prisma. For background job scheduling, we use BullMQ with Redis, and for email delivery we use Nodemailer with SMTP. During development and testing, we use Ethereal Email as a test SMTP service.”
+
+2. Authentication — ~1 minute
+
+“Starting with authentication, the user can log in using Google OAuth.
+
+The frontend receives the Google authentication information and sends the required token to the backend. The backend verifies the Google token.
+
+After verification, the backend checks whether the user already exists in PostgreSQL. If the user doesn't exist, we create the user record.
+
+After successful authentication, our backend generates an application-level JWT. The frontend uses this JWT for authenticated API requests.
+
+So Google OAuth is used for authentication, while our JWT is used to authorize subsequent requests to our backend.”
+
+3. Campaign creation — ~1 minute
+
+“After login, the user can access the dashboard and create an email campaign.
+
+In the compose section, the user provides the recipients, subject, email content, sender account, scheduled start time, minimum delay between emails, and hourly sending limit.
+
+The React frontend sends this information to the backend through an API request.
+
+The request reaches our Express route and then the campaign controller. The backend validates the request before doing any scheduling.
+
+If the request is invalid, we return an appropriate error response. If it is valid, we create the campaign in PostgreSQL.”
+
+4. EmailJob creation — ~1 minute
+
+“After creating the campaign, we create individual EmailJob records for the recipients.
+
+For example, if a campaign has 100 recipients, we can have 100 individual email jobs associated with that campaign.
+
+Each EmailJob stores information such as the campaign, recipient, sender account, scheduled time, status, and an idempotency key.
+
+Initially, the job can have a scheduled status.
+
+This is important because PostgreSQL gives us permanent business data. Even if the application restarts, we still know which campaigns and email jobs exist.”
+
+5. Scheduling + BullMQ — ~1.5 minutes
+
+“Next comes the actual scheduling.
+
+We calculate a target timestamp for each email based on the campaign start time and the configured minimum delay.
+
+For example, if the campaign starts at 5 PM and the minimum delay is 10 seconds, the emails can have target times like 5:00:00, 5:00:10, 5:00:20 and so on.
+
+Then the scheduler converts the target timestamp into a delay in milliseconds.
+
+We add each email job to a BullMQ queue using emailQueue.add().
+
+BullMQ uses Redis as its backing store. So instead of keeping the scheduled job only inside Node.js memory, the job is maintained in Redis.
+
+This is important for reliability because Node.js can restart. The queue isn't dependent only on the lifetime of the Node.js process.”
+
+6. Worker — ~1 minute
+
+“We have a separate email worker responsible for processing these background jobs.
+
+The API server handles incoming HTTP requests, while the worker listens to the BullMQ queue.
+
+When a scheduled job becomes ready, BullMQ gives the job to the worker.
+
+The worker gets the EmailJob ID from the queue job and then retrieves the actual EmailJob, campaign, and sender information from PostgreSQL.
+
+Before sending, the worker performs checks such as whether the email was already sent and whether the sending limits allow the email to be processed.”
+
+7. Rate limiting and delay — ~1 minute
+
+“The system also supports rate limiting.
+
+Each sender can have an hourly limit. For example, if a sender is allowed to send 50 emails per hour, we should not allow the worker to send more than that within the same hour.
+
+Redis is used to maintain the sender's hourly sending counter.
+
+If the hourly limit has not been reached, the worker can continue processing the email.
+
+If the limit has been reached, the job is postponed and processed during the next available period.
+
+Separately, we also have minDelaySec, which controls the spacing between email processing. So hourly limit controls how many emails can be sent in an hour, while minimum delay controls the spacing between emails.”
+
+8. Sending the email — ~1 minute
+
+“After all the checks pass, the worker calls our SMTP service.
+
+The SMTP service uses Nodemailer to create the transporter and send the email.
+
+During development, we use Ethereal Email, which provides a test SMTP environment. This allows us to test the complete email-sending flow without sending actual test emails to real recipients.
+
+The worker passes the sender, recipient, subject, HTML content, and attachments to the SMTP service.
+
+If the SMTP service successfully sends the email, we update the corresponding EmailJob in PostgreSQL to SENT and store information such as the sent time and Ethereal preview URL.”
+
+9. Failure + retry — ~1 minute
+
+“If email sending fails, we catch the error and update the EmailJob with a failed status and the error message.
+
+We also throw the error back to BullMQ so BullMQ knows that the job failed.
+
+Our BullMQ configuration supports retries and exponential backoff. So instead of immediately giving up after one failure, BullMQ can retry the job according to the configured number of attempts.
+
+If a later attempt succeeds, the job becomes SENT. If all attempts fail, the job remains FAILED and we keep the error information for debugging.”
+
+10. Restart scenario + complete architecture — ~1 minute
+
+“One important feature of the project is persistence across a server restart.
+
+Suppose I schedule an email for 10 minutes later and then stop the Node.js server.
+
+The scheduled job is not stored only in Node.js memory. BullMQ has stored the job information in Redis.
+
+When the worker starts again and reconnects to Redis, the pending job is still available and can continue processing.
+
+PostgreSQL separately keeps the permanent application records such as users, campaigns, sender accounts, and EmailJobs.
+
+So the overall architecture is:
+
+React → Express API → Controller → PostgreSQL for business data → Scheduler → BullMQ → Redis → Worker → Rate limiting and processing → Nodemailer → SMTP/Ethereal.
+
+The main benefit of this architecture is that email sending is asynchronous, scheduled, retryable, rate-controlled, and doesn't require the user to keep the frontend open.”
+
+🔥 End with this
+
+Don't keep talking after this. Finish confidently:
+
+“That is the overall architecture and flow of my email scheduling system. I mainly worked on the backend scheduling flow, API handling, BullMQ and Redis integration, worker processing, rate limiting, and email delivery.”
